@@ -1,90 +1,121 @@
 import socket
 import threading
-import queue
-import sys
-import random
-import os
+
+host = '<IP_DA_MAQUINA_QUE_VAI_RODAR_O_SERVIDOR>'
+porta = 12345  # PORTA QUE O SERVIDOR VAI OUVIR
+portaCliente = 12346  # PORTA QUE O CLIENTE VAI OUVIR
+
+# Cria um objeto socket UDP
+socket_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+# Liga o socket ao endereço e porta especificados
+socket_server.bind((host, porta))
+
+# Tamanho máximo de dados a serem recebidos de uma vez
+tamanho_maximo = 1024
+
+# Lista para armazenar pares de nome e IP
+participantes = []
+
+# Variável para controlar a execução do programa
+executando = True
+
+print(f"Servidor UDP aguardando mensagens em {host}:{porta}")
+
+# Função para remover um participante da lista pelo nome
 
 
-#Client Code
-def ReceiveData(sock):
-    while True:
+def remover_participante(nome):
+    for participante in participantes:
+        if participante[0] == nome:
+            participantes.remove(participante)
+            print(f"{nome} saiu da sala")
+
+# Função para responder aos contatos com a lista de participantes
+
+
+def responder_contatos(endereco):
+    lista_contatos = ""
+    for nome, ip in participantes:
+        lista_contatos = lista_contatos+(f"{nome},{ip}\n")
+    # print(lista_contatos)
+    # Divide a lista em pedaços para enviar
+    pedacos = [lista_contatos[i:i + tamanho_maximo]
+               for i in range(0, len(lista_contatos), tamanho_maximo)]
+    # Envia cada pedaço
+    for pedaco in pedacos:
+        socket_server.sendto(pedaco.encode('utf-8'),
+                             (endereco[0], portaCliente))
+
+# Função para receber mensagens
+
+
+def receber_mensagens():
+    while executando:
         try:
-            data,addr = sock.recvfrom(1024)
-            print(data.decode('utf-8'))
-        except:
-            pass
+            # Recebe os dados e o endereço do remetente
+            dados, endereco = socket_server.recvfrom(
+                tamanho_maximo)  # Tamanho do buffer é 1024 bytes
 
-def RunClient(serverIP):
-    host = socket.gethostbyname(socket.gethostname())
-    port = random.randint(6000,10000)
-    print('Client IP->'+str(host)+' Port->'+str(port))
-    server = (str(serverIP),5000)
-    s = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    s.bind((host,port))
+            mensagem = dados.decode('utf-8')
+            if mensagem.startswith(".entrar "):
+                nome = mensagem[8:]  # Extrai o nome da mensagem
+                # Adiciona o par (nome, IP) à lista
+                participantes.append((nome, endereco[0]))
+                print(nome+" adicionado na lista.")
+                lista_contatos = "\n".join(
+                    [f"{nome},{ip}" for nome, ip in participantes])
+                print(lista_contatos)
+            elif mensagem.startswith(".sair "):
+                nome = mensagem[6:]  # Extrai o nome da mensagem
+                remover_participante(nome)
+            elif mensagem == ".contatos":
+                responder_contatos(endereco)
+            print(f"Recebido de {endereco[0]}:{endereco[1]}: {mensagem}")
 
-    name = input('Please write your name here: ')
-    if name == '':
-        name = 'Guest'+str(random.randint(1000,9999))
-        print('Your name is:'+name)
-    s.sendto(name.encode('utf-8'),server)
-    threading.Thread(target=ReceiveData,args=(s,)).start()
-    while True:
-        data = input()
-        if data == 'qqq':
-            break
-        elif data=='':
-            continue
-        data = '['+name+']' + '->'+ data
-        s.sendto(data.encode('utf-8'),server)
-    s.sendto(data.encode('utf-8'),server)
-    s.close()
-    os._exit(1)
-#Client Code Ends Here
+        except UnicodeDecodeError:
+            print(
+                f"Recebido de {endereco[0]}:{endereco[1]}: Erro de decodificação (não UTF-8)")
 
 
-#Server Code
-def RecvData(sock,recvPackets):
-    while True:
-        data,addr = sock.recvfrom(1024)
-        recvPackets.put((data,addr))
+# Inicializa uma thread para receber mensagens
+thread_recebimento = threading.Thread(target=receber_mensagens)
+thread_recebimento.daemon = True
+thread_recebimento.start()
 
-def RunServer():
-    host = socket.gethostbyname(socket.gethostname())
-    port = 5000
-    print('Server hosting on IP-> '+str(host))
-    s = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
-    s.bind((host,port))
-    clients = set()
-    recvPackets = queue.Queue()
+# Função para enviar mensagens
 
-    print('Server Running...')
 
-    threading.Thread(target=RecvData,args=(s,recvPackets)).start()
+def enviar_mensagens():
+    cliente_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    global executando
+    destino_ip = input("Digite o endereço IP de destino: ")
+    if destino_ip == "":
+        destino_ip = host
+    while executando:
+        mensagem = input("\n"+"Digite a mensagem a ser enviada: ")
+        if mensagem == ".parar":
+            print("Encerrando o programa...")
+            print("Fechando portas de escuta:")
+            executando = False
+            cliente_socket.sendto(mensagem.encode(
+                'utf-8'), (host, portaCliente))
+        elif mensagem.startswith(".destino"):
+            destino_ip = input("Digite o endereço IP de destino: ")
+        else:
+            cliente_socket.sendto(mensagem.encode(
+                'utf-8'), (destino_ip, portaCliente))
 
-    while True:
-        while not recvPackets.empty():
-            data,addr = recvPackets.get()
-            if addr not in clients:
-                clients.add(addr)
-                continue
-            clients.add(addr)
-            data = data.decode('utf-8')
-            if data.endswith('qqq'):
-                clients.remove(addr)
-                continue
-            print(str(addr)+data)
-            for c in clients:
-                if c!=addr:
-                    s.sendto(data.encode('utf-8'),c)
-    s.close()
-#Serevr Code Ends Here
 
-if __name__ == '__main__':
-    if len(sys.argv)==1:
-        RunServer()
-    elif len(sys.argv)==2:
-        RunClient(sys.argv[1])
-    else:
-        print('Run Serevr:-> python Chat.py')
-        print('Run Client:-> python Chat.py <ServerIP>')
+# Inicializa uma thread para enviar mensagens
+thread_envio = threading.Thread(target=enviar_mensagens)
+thread_envio.start()
+
+# Aguarda as threads finalizarem
+thread_recebimento.join()
+thread_envio.join()
+
+print("Threads encerradas.")
+# Feche o socket (isso nunca será executado no loop acima)
+socket_server.close()
+print("Socket encerrado. Bye Bye")
