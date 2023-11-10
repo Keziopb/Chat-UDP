@@ -1,6 +1,7 @@
 import socket
 import threading
 
+
 host = '<IP_DA_MAQUINA_QUE_VAI_RODAR_O_SERVIDOR>'
 porta = 12345  # PORTA QUE O SERVIDOR VAI OUVIR
 portaCliente = 12346  # PORTA QUE O CLIENTE VAI OUVIR
